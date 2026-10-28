@@ -25,31 +25,41 @@ def source_json(url, payload=None, timeout=5):
     with urlopen(Request(url,data=body,headers=headers),timeout=timeout) as response:
         return json.load(response)
 
+def hyperliquid_depth(symbol):
+    try:
+        return summarize_l2(source_json(HL_INFO, {'type':'l2Book','coin':symbol}, timeout=5))
+    except Exception as exc:
+        return {'status':'unavailable','venue':'Hyperliquid','reason':type(exc).__name__}
+
+def gateway_status():
+    return _GATEWAY.report() if _GATEWAY is not None else {
+        'status':'disabled','reason':'Use --gateway to subscribe to local Gateway'}
+
 def source_status(symbol='BTC'):
-    sources={}
-    try:
-        sources['hyperdata_health']={'status':'available','data':source_json('http://127.0.0.1:8420/v1/health',timeout=2)}
-    except Exception as exc:
-        sources['hyperdata_health']={'status':'unavailable','reason':type(exc).__name__}
-    try:
-        sources['hyperdata_market']={'status':'available','data':source_json('http://127.0.0.1:8420/v1/market',timeout=2)}
-    except Exception as exc:
-        sources['hyperdata_market']={'status':'unavailable','reason':type(exc).__name__}
-    try:
-        sources['hyperliquid_depth'] = summarize_l2(source_json(HL_INFO,{'type':'l2Book','coin':symbol},timeout=5))
-    except Exception as exc:
-        sources['hyperliquid_depth']={'status':'unavailable','reason':type(exc).__name__}
+    """Diagnostics are independent; one offline venue cannot mask another."""
+    sources={'hyperliquid_depth':hyperliquid_depth(symbol),'gateway':gateway_status()}
+    for key,url in (
+        ('hyperdata_health','http://127.0.0.1:8420/v1/health'),
+        ('hyperdata_market','http://127.0.0.1:8420/v1/market')):
+        try:
+            data=source_json(url,timeout=2)
+            if key=='hyperdata_market':
+                # Keep overview bounded; market data may include many symbols.
+                rows=data if isinstance(data,list) else data.get('markets',[]) if isinstance(data,dict) else []
+                sources[key]={'status':'available','rows':len(rows),
+                              'data_shape':type(data).__name__}
+            else:
+                sources[key]={'status':'available','data':data}
+        except Exception as exc:
+            sources[key]={'status':'unavailable','reason':type(exc).__name__}
     try:
         import ccxt
-        market=ccxt.binanceusdm({'enableRateLimit':True,'timeout':4000})
-        value=market.fetch_ticker(f'{symbol}/USDT:USDT')
-        sources['ccxt']={'status':'available','venue':'Binance USD-M','last':value.get('last'),'timestamp_ms':value.get('timestamp')}
+        exchange=ccxt.binanceusdm({'enableRateLimit':True,'timeout':4000})
+        ticker=exchange.fetch_ticker(f'{symbol}/USDT:USDT')
+        sources['ccxt']={'status':'available','venue':'Binance USD-M',
+                         'last':ticker.get('last'),'timestamp_ms':ticker.get('timestamp')}
     except Exception as exc:
         sources['ccxt']={'status':'unavailable','reason':type(exc).__name__}
-    if _GATEWAY is not None:
-        sources['gateway'] = _GATEWAY.report()
-    else:
-        sources['gateway']={'status':'disabled','reason':'Start with --gateway to subscribe to local gateway stream'}
     return sources
 
 
@@ -86,10 +96,12 @@ class Handler(BaseHTTPRequestHandler):
             if path in ('/api/overview','/api/depth','/api/fusion'):
                 symbol=get('symbol','BTC').upper()
                 if not symbol.replace('-','').isalnum() or len(symbol)>24:raise ValueError('invalid symbol')
-                sources=source_status(symbol)
-                if path=='/api/depth':return self.reply(200,{'symbol':symbol,'hyperliquid':sources['hyperliquid_depth'],'gateway':sources['gateway']})
-                if path=='/api/fusion':return self.reply(200,{'symbol':symbol,'execution_venue':'Hyperliquid','execution_depth':sources['hyperliquid_depth'],'context_venue':sources['gateway'],'note':'Binance depth is not execution venue confirmation'})
-                return self.reply(200,{'symbol':symbol,'sources':sources,'read_only':True})
+                if path in ('/api/depth','/api/fusion'):
+                    depth=hyperliquid_depth(symbol)
+                    gateway=gateway_status()
+                    if path=='/api/depth':return self.reply(200,{'symbol':symbol,'hyperliquid':depth,'gateway':gateway})
+                    return self.reply(200,{'symbol':symbol,'execution_venue':'Hyperliquid','execution_depth':depth,'context_venue':gateway,'note':'Binance depth is not execution venue confirmation'})
+                return self.reply(200,{'symbol':symbol,'sources':source_status(symbol),'read_only':True})
             if path=='/api/risk':
                 return self.reply(200,position_plan(float(get('entry','0')),float(get('stop','0')),float(get('equity','0')),float(get('risk_fraction','0.005')),float(get('leverage_cap','3'))))
             symbol=get('symbol','BTC').upper();interval=get('interval','5m')
