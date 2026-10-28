@@ -149,6 +149,24 @@ inline void render_panel() {
                          bias=="SHORT"?ImVec4(1,.39f,.47f,1):ImVec4(.95f,.72f,.4f,1);
         ImGui::TextColored(col,"Candle research bias: %s",bias.c_str());
     }
+    ImGui::SeparatorText("ATSE advanced analysis");
+    if (s.advanced.valid) {
+        const auto& a=s.advanced.body;
+        const auto trend=a.value("itrend_inspired",nlohmann::json::object());
+        const auto force=a.value("tdfi_inspired",nlohmann::json::object());
+        const auto pressure=a.value("waddah_inspired",nlohmann::json::object());
+        const auto channel=a.value("hilo_channel",nlohmann::json::object());
+        const auto consensus=a.value("consensus",nlohmann::json::object());
+        ImGui::Text("Trend alignment: %s",label(trend,"direction").c_str());
+        print_number("Normalized force:",numeric(force,"normalized_force"));
+        print_number("Momentum:",numeric(pressure,"momentum"));
+        print_number("Explosion:",numeric(pressure,"explosion"));
+        print_number("Channel high:",numeric(channel,"prior_20_high"));
+        print_number("Channel low:",numeric(channel,"prior_20_low"));
+        ImGui::Text("Composite research: %s",label(consensus,"bias","WAIT").c_str());
+        print_number("Votes score:",numeric(consensus,"score"));
+        ImGui::TextDisabled("Open indicator proxies; not proprietary signal clones");
+    }
     ImGui::SeparatorText("Hyperliquid execution depth");
     const auto& d=s.depth.body;
     if (s.depth.valid) {
