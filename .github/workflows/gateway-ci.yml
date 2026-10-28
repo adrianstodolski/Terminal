@@ -1,0 +1,33 @@
+name: EdgeDepth Gateway Go verification
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vendor/edgedepth-gateway/**'
+      - '.github/workflows/gateway-ci.yml'
+  pull_request:
+    paths:
+      - 'vendor/edgedepth-gateway/**'
+      - '.github/workflows/gateway-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: vendor/edgedepth-gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/edgedepth-gateway/go.mod
+          cache-dependency-path: vendor/edgedepth-gateway/go.sum
+      - name: Static checks
+        run: go vet ./...
+      - name: Offline unit tests
+        run: go test ./... -short -count=1
