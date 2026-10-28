@@ -39,7 +39,8 @@ def decode_book(data):
     d={'asks':[],'bids':[],'snapshot':False,'first':0,'last':0,'previous':0,'timestamp_ms':0}
     for k,v in fields(data):
         if k in (2,3):
-            l=dict(fields(v));price=l.get(1);qty=l.get(2)
+            l=dict(fields(v));price=l.get(1,0.0);qty=l.get(2,0.0)
+            # proto3 omits zero-valued scalars; size=0 is a valid book-level deletion.
             if price is None or qty is None or not math.isfinite(price) or not math.isfinite(qty) or price<=0 or qty<0:
                 raise ValueError('invalid book level')
             d['asks' if k==2 else 'bids'].append((price,qty))
