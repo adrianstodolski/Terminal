@@ -42,6 +42,18 @@ class ApiSafetyTests(unittest.TestCase):
         self.assertEqual(p['exchange'],'binancef')
         self.assertEqual(p['stream'],3)
         with self.assertRaises(ValueError):decode_book(fb(2,level))
+    def test_proto3_omitted_zero_size_is_book_deletion(self):
+        import struct
+        # A proto3 BookLevel with size=0 serializes only its nonzero price.
+        level=vi(1<<3|1)+struct.pack('<d',80744.8)
+        frame=fb(2,level)
+        decoded=decode_book(frame)
+        self.assertEqual(decoded['asks'],[(80744.8,0.0)])
+        book=BookState()
+        book.apply({'snapshot':True,'bids':[(80744.8,2.0)],'asks':[(80744.9,2.0)],'last':1,'first':1,'previous':0})
+        book.apply({'snapshot':False,'bids':[(80744.8,0.0)],'asks':[],'last':2,'first':2,'previous':1})
+        self.assertNotIn(80744.8,book.bids)
+
     def test_future_timestamp_rejected(self):
         obj={'time':30000,'levels':[[{'px':'99','sz':'2'}],[{'px':'101','sz':'1'}]]}
         self.assertEqual(summarize_l2(obj,now_ms=20000)['status'],'invalid')
