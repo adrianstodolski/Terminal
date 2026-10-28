@@ -739,6 +739,7 @@ set(COMMON_LINK_FLAGS
         -sALLOW_MEMORY_GROWTH=1
         -sNO_EXIT_RUNTIME=1
         -lwebsocket.js
+        -sFETCH=1
 #        -sFETCH
         -msimd128
         --preload-file ${CMAKE_SOURCE_DIR}/fonts@/fonts
