@@ -54,6 +54,17 @@ class ApiSafetyTests(unittest.TestCase):
         book.apply({'snapshot':False,'bids':[(80744.8,0.0)],'asks':[],'last':2,'first':2,'previous':1})
         self.assertNotIn(80744.8,book.bids)
 
+    def test_non_double_size_wire_rejected(self):
+        import struct
+        price=vi(1<<3|1)+struct.pack('<d',80744.8)
+        bad_size=fv(2,3)  # size MUST be fixed64/double, not a varint
+        with self.assertRaises(ValueError):decode_book(fb(2,price+bad_size))
+
+    def test_missing_price_still_rejected(self):
+        import struct
+        size=vi(2<<3|1)+struct.pack('<d',1.0)
+        with self.assertRaises(ValueError):decode_book(fb(2,size))
+
     def test_future_timestamp_rejected(self):
         obj={'time':30000,'levels':[[{'px':'99','sz':'2'}],[{'px':'101','sz':'1'}]]}
         self.assertEqual(summarize_l2(obj,now_ms=20000)['status'],'invalid')
