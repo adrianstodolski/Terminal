@@ -62,26 +62,41 @@ def decode_book(data):
 class BookState:
     def __init__(self):
         self.bids={};self.asks={};self.last_id=0;self.ready=False
-        self.updated_ms=0;self.errors=0;self.gaps=0
+        self.updated_ms=0;self.errors=0;self.gaps=0;self.await_first=False;self.resync_requested=False
     def apply(self,update):
         if update['snapshot']:
-            self.bids.clear();self.asks.clear();self.ready=True
-        elif not self.ready:return False
-        elif update['previous'] and self.last_id and update['previous']!=self.last_id:
-            self.ready=False;self.gaps+=1;self.bids.clear();self.asks.clear();return False
-        elif update['first'] and self.last_id and update['first']>self.last_id+1:
-            self.ready=False;self.gaps+=1;self.bids.clear();self.asks.clear();return False
-        if update['last'] and self.last_id and not update['snapshot'] and update['last']<=self.last_id:return False
+            # A fresh gateway snapshot is the only valid base after a gap.
+            self.bids.clear();self.asks.clear();self.last_id=0
+            self.ready=True;self.await_first=True;self.resync_requested=False
+        elif not self.ready:
+            return False
+        else:
+            last=update['last'];first=update['first'];previous=update['previous']
+            if last and self.last_id and last<=self.last_id:
+                return False  # delayed duplicate; do not roll back
+            if self.await_first:
+                # The first diff after a REST-backed snapshot may straddle its ID.
+                contiguous=(not self.last_id or not last or (
+                    (first and first<=self.last_id+1<=last) or previous==self.last_id))
+            else:
+                contiguous=(not self.last_id or not last or (
+                    (previous and previous==self.last_id) or (
+                        not previous and first and first<=self.last_id+1<=last)))
+            if not contiguous:
+                self.ready=False;self.await_first=False;self.resync_requested=True
+                self.gaps+=1;self.bids.clear();self.asks.clear()
+                return False
         for name,book in (('bids',self.bids),('asks',self.asks)):
             for price,qty in update[name]:
                 if qty==0:book.pop(price,None)
                 else:book[price]=qty
         self.last_id=update['last'] or self.last_id
+        self.await_first=False if not update['snapshot'] else self.await_first
         self.updated_ms=int(time.time()*1000)
         return True
     def report(self):
         age=int(time.time()*1000)-self.updated_ms if self.updated_ms else None
-        if not self.ready or not self.bids or not self.asks:return {'status':'waiting_snapshot','age_ms':age,'gaps':self.gaps}
+        if not self.ready or not self.bids or not self.asks:return {'status':'waiting_snapshot','age_ms':age,'gaps':self.gaps,'resync_requested':self.resync_requested}
         bid=max(self.bids);ask=min(self.asks)
         if bid>=ask:return {'status':'crossed_book','age_ms':age,'gaps':self.gaps}
         bq=sum(q for p,q in self.bids.items() if p>=bid*.999)
@@ -123,8 +138,14 @@ class GatewayMonitor:
                             self.error='bad frame: '+str(exc)[:120]
                             continue
                         with self.lock:
-                            self.books[p['symbol'].upper()].apply(u)
-                        self.error=None
+                            book=self.books[p['symbol'].upper()]
+                            applied=book.apply(u)
+                            need_resync=book.resync_requested
+                        if need_resync:
+                            # No snapshot arrives on an ongoing subscription.
+                            # Reconnect/re-subscribe to obtain an authoritative base.
+                            raise ConnectionError('depth sequence gap: resubscribe for snapshot')
+                        if applied:self.error=None
             except Exception as e:self.error=str(e)[:160]
             self.connected=False;self.reconnects+=1;time.sleep(3)
     def report(self):
