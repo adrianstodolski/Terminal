@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "integration/**"
+      - "research-ui/**"
       - ".github/workflows/python-integration.yml"
   pull_request:
     paths:
@@ -26,4 +27,4 @@ jobs:
       - name: Check syntax
         run: python -m compileall -q integration
       - name: Run deterministic smoke suite
-        run: python -m unittest discover -s integration/tests -p 'test_imported_theta.py' -v
+        run: python -m unittest discover -s integration/tests -p 'test_*.py' -v
