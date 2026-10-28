@@ -45,9 +45,15 @@ def source_status(symbol='BTC'):
             data=source_json(url,timeout=2)
             if key=='hyperdata_market':
                 # Keep overview bounded; market data may include many symbols.
-                rows=data if isinstance(data,list) else data.get('markets',[]) if isinstance(data,dict) else []
-                sources[key]={'status':'available','rows':len(rows),
-                              'data_shape':type(data).__name__}
+                rows=data if isinstance(data,list) else None
+                if isinstance(data,dict):
+                    for name in ('markets','assets','data','results','items'):
+                        if isinstance(data.get(name),list):rows=data[name];break
+                    if rows is None and data and all(isinstance(v,dict) for v in data.values()):rows=list(data.values())
+                sources[key]={'status':'available','rows':len(rows) if rows is not None else None,
+                              'data_shape':type(data).__name__,
+                              'keys':list(data)[:12] if isinstance(data,dict) else None,
+                              'note':'rows=null means unrecognized response schema, not an empty market'}
             else:
                 sources[key]={'status':'available','data':data}
         except Exception as exc:
@@ -71,8 +77,18 @@ def fetch_candles(symbol,interval,bars=350):
     req=Request(HL_INFO,data=body,headers={'Content-Type':'application/json','User-Agent':'EdgeDepth-readonly/0.1'})
     with urlopen(req,timeout=12) as response: data=json.load(response)
     if not isinstance(data,list):raise ValueError('unexpected candle response')
-    complete=[x for x in data if int(x['T'])<end]
-    if len(complete)<60:raise ValueError('too few completed candles')
+    complete=[]
+    for x in data:
+        if not isinstance(x,dict):continue
+        try:
+            start=int(x['t']); finish=int(x.get('T',start+step-1))
+            if finish>=end or start+step>end:continue
+            row={'t':start,'o':float(x['o']),'h':float(x['h']),'l':float(x['l']),'c':float(x['c'])}
+            if row['l']<=0 or row['h']<max(row['o'],row['c']) or row['l']>min(row['o'],row['c']):continue
+            complete.append(row)
+        except (KeyError,ValueError,TypeError):continue
+    complete.sort(key=lambda x:x['t'])
+    if len(complete)<60:raise ValueError('too few valid completed candles')
     return complete
 
 class Handler(BaseHTTPRequestHandler):
