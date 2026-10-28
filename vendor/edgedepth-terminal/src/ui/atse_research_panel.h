@@ -33,10 +33,7 @@ inline const char* root_url = "http://127.0.0.1:8765";
 inline double numeric(const nlohmann::json& obj, const char* key, double fallback = NAN) {
     if (!obj.is_object() || !obj.contains(key)) return fallback;
     const auto& v = obj[key];
-    try {
-        if (v.is_number()) return v.get<double>();
-        if (v.is_string()) return std::stod(v.get<std::string>());
-    } catch (...) {}
+    if (v.is_number()) return v.get<double>();
     return fallback;
 }
 inline std::string label(const nlohmann::json& obj, const char* key, const char* fallback = "—") {
@@ -50,16 +47,14 @@ inline void callback_success(emscripten_fetch_t* fetch) {
     target->received = true;
     target->received_at = emscripten_get_now();
     target->valid = false;
-    try {
-        if (fetch->status != 200 || !fetch->data) {
-            target->error = "HTTP " + std::to_string(fetch->status);
-        } else {
-            target->body = nlohmann::json::parse(
-                fetch->data, fetch->data + fetch->numBytes);
-            target->valid = target->body.is_object() && !target->body.contains("error");
-            target->error = target->valid ? "" : "Invalid API response";
-        }
-    } catch (const std::exception& e) { target->error = e.what(); }
+    if (fetch->status != 200 || !fetch->data) {
+        target->error = "HTTP " + std::to_string(fetch->status);
+    } else {
+        target->body = nlohmann::json::parse(
+            fetch->data, fetch->data + fetch->numBytes, nullptr, false);
+        target->valid = target->body.is_object() && !target->body.contains("error");
+        target->error = target->valid ? "" : "Malformed JSON or API error";
+    }
     emscripten_fetch_close(fetch);
 }
 inline void callback_error(emscripten_fetch_t* fetch) {
