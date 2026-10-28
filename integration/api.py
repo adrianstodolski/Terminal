@@ -106,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
         get=lambda name,default:args.get(name,[default])[0]
         if path=='/api/health':
             return self.reply(200,{'status':'ok','service':'EdgeDepth independent analytics API','read_only':True,'warning':'No live trading validation'})
-        if path not in ('/api/risk','/api/indicators','/api/advanced-indicators','/api/backtest','/api/strategy-compare','/api/overview','/api/depth','/api/fusion'):
+        if path not in ('/api/risk','/api/indicators','/api/advanced-indicators','/api/backtest','/api/strategy-compare','/api/candles','/api/overview','/api/depth','/api/fusion'):
             return self.reply(404,{'error':'unknown endpoint'})
         try:
             if path in ('/api/overview','/api/depth','/api/fusion'):
@@ -126,6 +126,8 @@ class Handler(BaseHTTPRequestHandler):
             side=get('side','LONG').upper()
             if side not in ('LONG','SHORT'):raise ValueError('invalid side')
             bars=fetch_candles(symbol,interval)
+            if path=='/api/candles':
+                return self.reply(200,{'symbol':symbol,'interval':interval,'candles':bars[-180:],'source':'Hyperliquid completed candles','read_only':True})
             if path=='/api/indicators':result=indicator_snapshot(bars)
             elif path=='/api/advanced-indicators':result=advanced_snapshot(bars)
             elif path=='/api/backtest':result=historical_breakouts(bars,side)
