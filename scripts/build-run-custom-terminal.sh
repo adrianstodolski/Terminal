@@ -10,7 +10,14 @@ IMAGE="${ATSE_TERMINAL_IMAGE:-atse-edgedepth:local}"
 if ! docker info >/dev/null 2>&1; then echo "Start Docker Desktop first." >&2; exit 1; fi
 if ! test -f "$SOURCE/src/ui/atse_research_panel.h"; then echo "Native panel missing; git pull." >&2; exit 1; fi
 echo "Building modified EdgeDepth source (not pulling upstream terminal image)..."
-docker build --platform linux/amd64 -t "$IMAGE" "$SOURCE"
+if [[ "$(uname -m)" == "arm64" ]]; then
+  # Upstream Dockerfile installs linux-x86_64 protoc. Force the build stage
+  # onto amd64 on Apple Silicon; otherwise the host protoc cannot execute.
+  sed 's|^FROM --platform=\$BUILDPLATFORM emscripten/emsdk:4.0.15|FROM --platform=linux/amd64 emscripten/emsdk:4.0.15|' "$SOURCE/Dockerfile" \
+    | docker build --platform linux/amd64 -f - -t "$IMAGE" "$SOURCE"
+else
+  docker build --platform linux/amd64 -t "$IMAGE" "$SOURCE"
+fi
 if docker ps -a --format '{{.Names}}' | grep -Fxq "$NAME"; then docker rm -f "$NAME" >/dev/null; fi
 if docker ps -a --format '{{.Names}}' | grep -Fxq "edgedepth-full-terminal"; then
   echo "Stopping old upstream-only terminal to free the port..."
