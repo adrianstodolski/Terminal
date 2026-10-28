@@ -114,7 +114,9 @@ class GatewayMonitor:
                             self.decode_errors+=1
                             self.error='bad frame: '+str(exc)[:120]
                             continue
-                        with self.lock:self.books[p['symbol'].upper()].apply(u)
+                        with self.lock:
+                            self.books[p['symbol'].upper()].apply(u)
+                        self.error=None
             except Exception as e:self.error=str(e)[:160]
             self.connected=False;self.reconnects+=1;time.sleep(3)
     def report(self):
