@@ -14,7 +14,8 @@ def summarize_l2(levels, now_ms=None, max_age_ms=10000):
         if bid>=ask:raise ValueError('crossed book')
         bq=sum(q for p,q in bids if p>=bid*.999)
         aq=sum(q for p,q in asks if p<=ask*1.001)
-        age=max(0,now_ms-ts)
+        age=now_ms-ts
+        if age < -2000:raise ValueError('depth timestamp is in the future')
         return {'status':'live' if age<=max_age_ms else 'stale','venue':'Hyperliquid','timestamp_ms':ts,'age_ms':age,
                 'best_bid':bid,'best_ask':ask,'mid':(bid+ask)/2,'spread_bps':(ask-bid)/((ask+bid)/2)*10000,
                 'near_bid_qty':bq,'near_ask_qty':aq,'near_imbalance':(bq-aq)/(bq+aq) if bq+aq else None}
