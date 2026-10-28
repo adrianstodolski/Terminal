@@ -9,7 +9,7 @@ def varint(buf,pos):
         if not b&128:return v,pos
     raise ValueError('varint too long')
 
-def fields(buf):
+def fields(buf, include_wire=False):
     import struct
     pos=0
     while pos<len(buf):
@@ -27,7 +27,7 @@ def fields(buf):
             if pos+4>len(buf):raise ValueError('truncated fixed32')
             val=buf[pos:pos+4];pos+=4
         else:raise ValueError('unsupported protobuf wire')
-        yield num,val
+        yield (num,wire,val) if include_wire else (num,val)
 
 def decode_payload(data):
     f=list(fields(data)); pair=next((v for k,v in f if k==1),b'')
@@ -39,7 +39,15 @@ def decode_book(data):
     d={'asks':[],'bids':[],'snapshot':False,'first':0,'last':0,'previous':0,'timestamp_ms':0}
     for k,v in fields(data):
         if k in (2,3):
-            l=dict(fields(v));price=l.get(1,0.0);qty=l.get(2,0.0)
+            # BookLevel.price and BookLevel.size are both protobuf double (wire 1).
+            # A present field of any other wire type is malformed, even if its
+            # decoded numeric value happens to look plausible.
+            l={}
+            for number,wire,value in fields(v,include_wire=True):
+                if number in (1,2):
+                    if wire!=1:raise ValueError('invalid book level wire type')
+                    l[number]=value
+            price=l.get(1,0.0);qty=l.get(2,0.0)
             # proto3 omits zero-valued scalars; size=0 is a valid book-level deletion.
             if price is None or qty is None or not math.isfinite(price) or not math.isfinite(qty) or price<=0 or qty<0:
                 raise ValueError('invalid book level')
