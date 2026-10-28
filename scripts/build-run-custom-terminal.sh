@@ -12,6 +12,10 @@ if ! test -f "$SOURCE/src/ui/atse_research_panel.h"; then echo "Native panel mis
 echo "Building modified EdgeDepth source (not pulling upstream terminal image)..."
 docker build --platform linux/amd64 -t "$IMAGE" "$SOURCE"
 if docker ps -a --format '{{.Names}}' | grep -Fxq "$NAME"; then docker rm -f "$NAME" >/dev/null; fi
+if docker ps -a --format '{{.Names}}' | grep -Fxq "edgedepth-full-terminal"; then
+  echo "Stopping old upstream-only terminal to free the port..."
+  docker rm -f edgedepth-full-terminal >/dev/null
+fi
 echo "Launching custom EdgeDepth native app on $PORT"
 docker run -d --name "$NAME" -p "127.0.0.1:$PORT:8080" -e "EDGEDEPTH_WS_URL=ws://127.0.0.1:$GATEWAY_PORT/ws" "$IMAGE" >/dev/null
 echo "Open http://127.0.0.1:$PORT (Chrome/Firefox)"
