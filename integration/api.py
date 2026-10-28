@@ -11,6 +11,48 @@ from strategy_lab import compare_strategies
 HL_INFO='https://api.hyperliquid.xyz/info'
 INTERVALS={'1m':60000,'5m':300000,'15m':900000,'1h':3600000,'4h':14400000}
 
+# Imported read-only source diagnostics. Never submits exchange orders.
+from market_fusion import summarize_l2
+from gateway_depth import GatewayMonitor
+from urllib.parse import urlencode
+from urllib.error import URLError
+
+_GATEWAY = None
+
+def source_json(url, payload=None, timeout=5):
+    body=None if payload is None else json.dumps(payload).encode()
+    headers={'Content-Type':'application/json','User-Agent':'EdgeDepth-integration/0.2'}
+    with urlopen(Request(url,data=body,headers=headers),timeout=timeout) as response:
+        return json.load(response)
+
+def source_status(symbol='BTC'):
+    sources={}
+    try:
+        sources['hyperdata_health']={'status':'available','data':source_json('http://127.0.0.1:8420/v1/health',timeout=2)}
+    except Exception as exc:
+        sources['hyperdata_health']={'status':'unavailable','reason':type(exc).__name__}
+    try:
+        sources['hyperdata_market']={'status':'available','data':source_json('http://127.0.0.1:8420/v1/market',timeout=2)}
+    except Exception as exc:
+        sources['hyperdata_market']={'status':'unavailable','reason':type(exc).__name__}
+    try:
+        sources['hyperliquid_depth'] = summarize_l2(source_json(HL_INFO,{'type':'l2Book','coin':symbol},timeout=5))
+    except Exception as exc:
+        sources['hyperliquid_depth']={'status':'unavailable','reason':type(exc).__name__}
+    try:
+        import ccxt
+        market=ccxt.binanceusdm({'enableRateLimit':True,'timeout':4000})
+        value=market.fetch_ticker(f'{symbol}/USDT:USDT')
+        sources['ccxt']={'status':'available','venue':'Binance USD-M','last':value.get('last'),'timestamp_ms':value.get('timestamp')}
+    except Exception as exc:
+        sources['ccxt']={'status':'unavailable','reason':type(exc).__name__}
+    if _GATEWAY is not None:
+        sources['gateway'] = _GATEWAY.report()
+    else:
+        sources['gateway']={'status':'disabled','reason':'Start with --gateway to subscribe to local gateway stream'}
+    return sources
+
+
 def fetch_candles(symbol,interval,bars=350):
     if not symbol.replace('-','').isalnum() or len(symbol)>24 or interval not in INTERVALS:
         raise ValueError('invalid symbol or interval')
@@ -38,9 +80,16 @@ class Handler(BaseHTTPRequestHandler):
         get=lambda name,default:args.get(name,[default])[0]
         if path=='/api/health':
             return self.reply(200,{'status':'ok','service':'EdgeDepth independent analytics API','read_only':True,'warning':'No live trading validation'})
-        if path not in ('/api/risk','/api/indicators','/api/advanced-indicators','/api/backtest','/api/strategy-compare'):
+        if path not in ('/api/risk','/api/indicators','/api/advanced-indicators','/api/backtest','/api/strategy-compare','/api/overview','/api/depth','/api/fusion'):
             return self.reply(404,{'error':'unknown endpoint'})
         try:
+            if path in ('/api/overview','/api/depth','/api/fusion'):
+                symbol=get('symbol','BTC').upper()
+                if not symbol.replace('-','').isalnum() or len(symbol)>24:raise ValueError('invalid symbol')
+                sources=source_status(symbol)
+                if path=='/api/depth':return self.reply(200,{'symbol':symbol,'hyperliquid':sources['hyperliquid_depth'],'gateway':sources['gateway']})
+                if path=='/api/fusion':return self.reply(200,{'symbol':symbol,'execution_venue':'Hyperliquid','execution_depth':sources['hyperliquid_depth'],'context_venue':sources['gateway'],'note':'Binance depth is not execution venue confirmation'})
+                return self.reply(200,{'symbol':symbol,'sources':sources,'read_only':True})
             if path=='/api/risk':
                 return self.reply(200,position_plan(float(get('entry','0')),float(get('stop','0')),float(get('equity','0')),float(get('risk_fraction','0.005')),float(get('leverage_cap','3'))))
             symbol=get('symbol','BTC').upper();interval=get('interval','5m')
@@ -60,7 +109,10 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self,*args):pass
 
 def main():
-    p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8765);args=p.parse_args()
+    p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8765);p.add_argument('--gateway',action='store_true',help='monitor EdgeDepth Gateway WebSocket (requires websockets)');args=p.parse_args()
+    global _GATEWAY
+    if args.gateway:
+        _GATEWAY=GatewayMonitor();_GATEWAY.start()
     print(f'EdgeDepth read-only analytics: http://127.0.0.1:{args.port}',flush=True)
     ThreadingHTTPServer(('127.0.0.1',args.port),Handler).serve_forever()
 if __name__=='__main__':main()
