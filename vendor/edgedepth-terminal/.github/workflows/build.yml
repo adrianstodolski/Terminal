@@ -1,0 +1,180 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  wasm:
+    name: Ubuntu / Emscripten
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify container routes
+        run: bash docker/test-routing.sh
+
+      - name: Run native tests
+        run: |
+          cmake -S tests/native -B build-native-tests -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-native-tests --config Release --parallel
+          cmake -E chdir build-native-tests ctest -C Release --output-on-failure
+
+      - name: Install protoc
+        # Pinned, NOT apt. protoc must be 21.x to match the protobuf v21.12
+        # runtime CMakeLists.txt fetches; Ubuntu 22.04's package is 3.12.4 and
+        # produces headers the runtime rejects.
+        env:
+          PROTOC_VERSION: "21.12"
+        run: |
+          curl -fsSL -o /tmp/protoc.zip \
+            "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          sudo unzip -q -o /tmp/protoc.zip -d /usr/local
+          protoc --version
+
+      - name: Setup Python for data examples
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Verify CSV, Parquet and terminal wire contract
+        run: |
+          python -m pip install -r examples/requirements.txt protobuf==6.33.5
+          bash tests/examples/run_tests.sh
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          # 4.0.x or newer is required: the client builds with -sUSE_SDL=3 and
+          # the SDL3 port does not exist before Emscripten 4. On 3.1.61 this
+          # fails with "SDL3/SDL.h file not found".
+          version: 4.0.15
+          actions-cache-folder: emsdk-cache
+
+      - name: Configure
+        run: |
+          mkdir build && cd build
+          emcmake cmake -DCMAKE_BUILD_TYPE=Release ..
+
+      - name: Verify stream subscription lifecycle
+        run: bash tests/wasm/run_stream_lifecycle.sh "$PWD/build"
+
+      - name: WebSocket reconnect regression
+        run: bash tests/wasm/run_websocket_reconnect.sh "$PWD/build"
+
+      - name: Heatmap live-column regression
+        run: bash tests/wasm/run_heatmap_live.sh "$PWD/build"
+
+      - name: Real-time depth sequence and retention regression
+        run: bash tests/wasm/run_realtime_depth.sh "$PWD/build"
+
+      - name: Session usage lifecycle regression
+        run: |
+          cmake --build build --target session_usage_regression --parallel 4
+          for mode in terminal lesson studio event demo studio-empty event-empty demo-empty terminal-empty; do
+            node build/session_usage_regression.js "$mode"
+          done
+
+      - name: Volume continuity and VPIN clock regression
+        run: |
+          cmake --build build --target indicator_continuity_regression --parallel 4
+          node build/indicator_continuity_regression.js
+
+      - name: Build
+        run: cd build && emmake make -j$(nproc) c_based_trader_client
+
+      - name: Verify artifacts
+        # Four artifacts, not three. index.data holds the fonts preloaded via
+        # --preload-file in CMakeLists.txt; the app renders no text without it.
+        run: |
+          test -s build/index.html
+          test -s build/index.js
+          test -s build/index.wasm
+          test -s build/index.data
+          ls -la build/index.html build/index.js build/index.wasm build/index.data
+
+  wasm-windows:
+    name: Windows / Emscripten + Ninja
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run native tests
+        shell: pwsh
+        run: |
+          cmake -S tests/native -B build-native-tests
+          cmake --build build-native-tests --config Release --parallel
+          cmake -E chdir build-native-tests ctest -C Release --output-on-failure
+
+      - name: Install protoc 21.12
+        shell: pwsh
+        run: |
+          $protocVersion = "21.12"
+          $protocArchive = Join-Path $env:RUNNER_TEMP "protoc-$protocVersion-win64.zip"
+          $protocRoot = Join-Path $env:RUNNER_TEMP "protoc-$protocVersion"
+          Invoke-WebRequest `
+            -Uri "https://github.com/protocolbuffers/protobuf/releases/download/v$protocVersion/protoc-$protocVersion-win64.zip" `
+            -OutFile $protocArchive
+          Expand-Archive -LiteralPath $protocArchive -DestinationPath $protocRoot -Force
+          $protocBin = Join-Path $protocRoot "bin"
+          $protocExe = Join-Path $protocBin "protoc.exe"
+          $protocBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "PROTOC_EXE=$protocExe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.15
+          actions-cache-folder: emsdk-cache
+
+      - name: Verify toolchain versions
+        shell: pwsh
+        run: |
+          $emccVersion = (emcc --version | Select-Object -First 1)
+          if ($emccVersion -notmatch "\b4\.0\.15\b") {
+            throw "Expected Emscripten 4.0.15, got: $emccVersion"
+          }
+          $protocVersion = (protoc --version)
+          if ($protocVersion -ne "libprotoc 3.21.12") {
+            throw "Expected libprotoc 3.21.12, got: $protocVersion"
+          }
+          $emccVersion
+          $protocVersion
+          ninja --version
+
+      - name: Configure with Emscripten and Ninja
+        shell: pwsh
+        run: emcmake.bat cmake -S . -B build-windows -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Prove CMake detected the pinned protoc
+        shell: pwsh
+        run: |
+          $cacheMatch = Select-String `
+            -Path build-windows/CMakeCache.txt `
+            -Pattern '^PROTOC_EXECUTABLE:FILEPATH=(.+)$'
+          if (-not $cacheMatch) {
+            throw "PROTOC_EXECUTABLE is missing from CMakeCache.txt"
+          }
+          $detectedProtoc = $cacheMatch.Matches[0].Groups[1].Value
+          if ((Resolve-Path $detectedProtoc).Path -ne (Resolve-Path $env:PROTOC_EXE).Path) {
+            throw "CMake detected '$detectedProtoc', expected '$env:PROTOC_EXE'"
+          }
+          $cacheMatch.Line
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build-windows --target c_based_trader_client --parallel
+
+      - name: Verify artifacts
+        shell: pwsh
+        run: |
+          $artifacts = @("index.html", "index.js", "index.wasm", "index.data") |
+            ForEach-Object { Join-Path "build-windows" $_ }
+          $invalid = $artifacts | Where-Object {
+            -not (Test-Path -LiteralPath $_ -PathType Leaf) -or (Get-Item -LiteralPath $_).Length -eq 0
+          }
+          if ($invalid) {
+            throw "Missing or empty WASM artifacts: $($invalid -join ', ')"
+          }
+          Get-Item -LiteralPath $artifacts | Format-Table Name, Length
