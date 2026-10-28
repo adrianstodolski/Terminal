@@ -79,6 +79,7 @@
 #include "ui/chart_widget.h"
 #include "ui/upsell_modal.h"
 #include "ui/research_moment_panel.h"
+#include "ui/atse_research_panel.h"
 #include "ui/dom_widget.h"
 #include "ui/orderbook_widget.h"
 #include "ui/trades_widget.h"
@@ -1988,6 +1989,10 @@ void main_loop() {
             : QueueBacklogSnapshot{};
         if (g_app.data_thread) queues.dropped_dispatches = g_app.data_thread->dispatch_queue().dropped_total();
         PerformanceDiagnostics::render(g_profiler, g_frame_tracker, queues);
+    }
+    // ATSE native research extension. Original market widgets remain untouched.
+    if (!EducationBoot::instance().is_lesson() && !EducationBoot::instance().is_studio()) {
+        atse::render_panel();
     }
     // render_debug();
     ui_test::publish();
