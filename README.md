@@ -1,6 +1,6 @@
 # EdgeDepth Terminal — Integration workspace
 
-> **Migration in progress. The original C++/WebAssembly EdgeDepth Terminal and its gateway have NOT yet been pushed to this repository.** The committed research API and dashboard are standalone research tools, not a complete deployed trading platform.
+> **Source import confirmed on 2026-10-28:** upstream C++/WebAssembly terminal and Go gateway are now in `vendor/`. Full Theta feature integration, WebAssembly build and end-to-end runtime tests remain **unverified / incomplete**. See [audit](AUDIT-2026-10-28.md).
 
 ## What works in this repository
 
@@ -44,15 +44,15 @@ Run smoke tests:
 python3 -m unittest discover -s integration/tests -p 'test_imported_theta.py' -v
 ```
 
-## Still missing from GitHub
+## Imported source vs outstanding integration
 
-- The original EdgeDepth C++/Emscripten terminal and the modified ImGui/browser shell
-- EdgeDepth Gateway and its Protobuf/WebSocket reader
+- Original C++/Emscripten terminal and Go gateway have been imported under `vendor/`; this does **not** prove that modified Theta ImGui/browser panels were imported.
+- EdgeDepth Gateway and its Protobuf code are present, but the separate Python gateway WebSocket bridge is not confirmed
 - Full local HyperData and CCXT integrations, venue-aware depth fusion and signal history
 - Remaining tests from the Theta ZIP and full WebAssembly build
 - Validation on local live feeds and historical orderflow replay
 
-The project was previously built into a local **EdgeDepth Integrated Theta** archive. Its local 28-test suite was executed successfully, but the **entire archive is not on GitHub**. This repository cannot currently be claimed as a complete transfer or a production-ready terminal.
+The project was previously built into a local **EdgeDepth Integrated Theta** archive, but **its complete modifications are not on GitHub**. The original vendor code is now imported. No passing CI run or complete runtime validation has been verified; see [audit](AUDIT-2026-10-28.md).
 
 ## Execution and research limitations
 
