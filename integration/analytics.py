@@ -51,4 +51,4 @@ def historical_breakouts(bars, side, atr_period=14, lookback=20, horizon=12):
         outcomes.append({'entry_ms':int(candles[i+1]['t']),'exit_ms':int(candles[last]['t']),'entry':entry,'exit':exit_price,'r':r,'exit_reason':reason})
         i=last+1
     wins=sum(x['r']>0 for x in outcomes);total=sum(x['r'] for x in outcomes)
-    return {'side':side,'trades':len(outcomes),'win_rate':wins/len(outcomes) if outcomes else None,'mean_r':total/len(outcomes) if outcomes else None,'total_r':total,'assumptions':'Historical close-confirmed breakouts; next-open fill; stop-first intrabar ambiguity; no fees/slippage/funding; not a forecast','sample':outcomes[-50:]}
+    return {'side':side,'trades':len(outcomes),'win_rate':wins/len(outcomes) if outcomes else None,'mean_r':total/len(outcomes) if outcomes else None,'total_r':total,'assumptions':'Historical close-confirmed breakouts; next-open fill; stop-first intrabar ambiguity; no fees/slippage/funding; not a forecast','sample':outcomes,'trade_detail_count':len(outcomes)}
