@@ -97,7 +97,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header('Content-Type','application/json; charset=utf-8')
         self.send_header('Cache-Control','no-store')
-        self.send_header('Access-Control-Allow-Origin','http://127.0.0.1:8080')
+        origin=self.headers.get('Origin','')
+        allowed={'http://127.0.0.1:8080','http://localhost:8080',
+                 'http://127.0.0.1:8082','http://localhost:8082'}
+        if origin in allowed:
+            self.send_header('Access-Control-Allow-Origin',origin)
+            self.send_header('Vary','Origin')
         self.send_header('Content-Length',str(len(body)))
         self.end_headers();self.wfile.write(body)
     def do_GET(self):
