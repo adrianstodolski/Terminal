@@ -88,7 +88,7 @@ class BookState:
 class GatewayMonitor:
     def __init__(self,url='ws://127.0.0.1:9001/ws',symbols=('btcusdt',)):
         self.url=url;self.symbols=tuple(symbols);self.books={s.upper():BookState() for s in symbols}
-        self.lock=threading.Lock();self.error=None;self.connected=False
+        self.lock=threading.Lock();self.error=None;self.connected=False;self.decode_errors=0;self.reconnects=0
     def start(self):
         threading.Thread(target=self.run,daemon=True,name='edgedepth-book-monitor').start()
     def run(self):
@@ -104,12 +104,18 @@ class GatewayMonitor:
                         ws.send(json.dumps({'method':'subscribe','data':{'pair':{'exchange':'binancef','symbol':s},'stream':3,'timeframe':0}}))
                     for frame in ws:
                         if not isinstance(frame,bytes):continue
-                        p=decode_payload(frame)
-                        if p['stream']!=3 or p['symbol'].upper() not in self.books:continue
-                        u=decode_book(p['data'])
+                        try:
+                            p=decode_payload(frame)
+                            if p['stream']!=3 or p['symbol'].upper() not in self.books:continue
+                            u=decode_book(p['data'])
+                        except (ValueError,KeyError,TypeError,UnicodeDecodeError) as exc:
+                            # A malformed frame must not drop a healthy WebSocket connection.
+                            self.decode_errors+=1
+                            self.error='bad frame: '+str(exc)[:120]
+                            continue
                         with self.lock:self.books[p['symbol'].upper()].apply(u)
             except Exception as e:self.error=str(e)[:160]
-            self.connected=False;time.sleep(3)
+            self.connected=False;self.reconnects+=1;time.sleep(3)
     def report(self):
         with self.lock: books={k:v.report() for k,v in self.books.items()}
-        return {'connected':self.connected,'error':self.error,'books':books}
+        return {'connected':self.connected,'error':self.error,'decode_errors':self.decode_errors,'reconnects':self.reconnects,'books':books}
