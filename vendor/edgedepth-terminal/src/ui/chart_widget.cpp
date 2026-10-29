@@ -18,6 +18,7 @@
 // ═══════════════════════════════════════════════════════════════════════════════
 
 #include "ui/chart_widget.h"
+#include "ui/atse_chart_overlay.h"
 #include "core/terminal_request.h"
 #include "rendering/observed_liquidations.h"
 #include <type_traits>
@@ -893,6 +894,8 @@ void ChartWidget::change_timeframe(const int new_tf_seconds)
 
 // Main Render
 void ChartWidget::render() {
+    if (!compare_ && !ctx_.replay_mgr().is_active())
+        atse::track_chart(pair_.exchange,pair_.symbol,candles().timeframe_seconds());
     cursor_reference_price_ = 0;
     rt_dom_frame_ = {}; // A hidden/collapsed plot must not publish a stale transform.
     if (!is_open) return;
@@ -1957,6 +1960,17 @@ void ChartWidget::render_chart() {
                                               : Theme::get_sell_color_u32(255);
                 CustomImPlot::DrawAxisValueTag(cur_price, price_buf, tag_col, true);
             }
+        }
+        // ATSE native research levels, visible only on the matching live market.
+        // This is passive drawing: the original heatmap, DOM, chart and input
+        // arbitration remain intact.
+        if (!ctx_.replay_mgr().is_active() && !compare_) {
+            double atse_chart_price = 0.0;
+            if (candles().has_building_candle())
+                atse_chart_price = candles().building_candle().close;
+            else if (!candles().closes().empty())
+                atse_chart_price = candles().closes().back();
+            atse::draw_price_overlay(pair_.exchange,pair_.symbol,false,compare_,atse_chart_price);
         }
         // Drawing tools: placement/hit-test/drag + render. Runs BEFORE
         // handle_plot_interaction so captures_mouse() gates the chart's own
