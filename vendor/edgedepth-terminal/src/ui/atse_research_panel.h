@@ -168,7 +168,7 @@ inline void render_panel() {
     maybe_refresh();
     if (ImGui::IsKeyPressed(ImGuiKey_F8))s.enabled=!s.enabled;
     if (!s.enabled) return;
-    ImGui::SetNextWindowSize(ImVec2(364,390), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(380,410), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(280,120), ImGuiCond_FirstUseEver);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(16,13));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(9,8));
@@ -199,7 +199,6 @@ inline void render_panel() {
     ImGui::SameLine();ImGui::Checkbox("ATR range",&s.show_atr_bands);
     ImGui::SameLine();ImGui::Checkbox("HUD",&s.show_chart_hud);
     if (ImGui::SmallButton("Sync sources"))s.last_request=-1e6;
-    ImGui::SeparatorText("MARKET STATE");
     const auto& i=s.indicators.body;
     const auto& adv=s.advanced.body;
     const auto& d=s.depth.body;
@@ -208,43 +207,83 @@ inline void render_panel() {
     const auto rsi=s.indicators.valid?i.value("rsi14",nlohmann::json::object()):nlohmann::json::object();
     const auto trend=s.indicators.valid?i.value("ema_trend",nlohmann::json::object()):nlohmann::json::object();
     const auto consensus=s.advanced.valid?adv.value("consensus",nlohmann::json::object()):nlohmann::json::object();
+    const auto channel=s.advanced.valid?adv.value("hilo_channel",nlohmann::json::object()):nlohmann::json::object();
     const std::string bias=s.advanced.valid?label(consensus,"bias","WAIT"):"WAIT";
     const double age=numeric(hl,"age_ms");
     const double since=s.depth.received?(emscripten_get_now()-s.depth.received_at):1e10;
     const bool fresh=s.depth.valid&&label(hl,"status")=="live"&&std::isfinite(age)
         &&age+since<s.data_age_limit_ms;
     const bool ready=fresh&&s.indicators.valid&&s.advanced.valid;
-    ImGui::TextColored(ready?teal:amber,ready?"●  SOURCES VERIFIED":"●  PARTIAL / STALE DATA");
-    ImGui::SameLine();ImGui::TextDisabled(" ·  %s",s.symbol);
-    if (ImGui::BeginTable("atse_kpi",3,ImGuiTableFlags_SizingStretchSame|ImGuiTableFlags_BordersInnerV)) {
-        ImGui::TableNextColumn();ImGui::TextDisabled("RSI / 14");print_number("",numeric(rsi,"value"));
-        ImGui::TableNextColumn();ImGui::TextDisabled("CCI / 20");print_number("",numeric(cci,"value"));
-        ImGui::TableNextColumn();ImGui::TextDisabled("ATR / 14");print_number("",s.indicators.valid?numeric(i,"atr14"):NAN);
-        ImGui::EndTable();
+    ImGui::TextColored(ready?teal:amber,ready?"●  LIVE / VERIFIED":"●  PARTIAL / STALE DATA");
+    ImGui::SameLine(); ImGui::TextDisabled("  %s  |  %s",s.symbol,intervals[s.interval]);
+    ImGui::Separator();
+    if (ImGui::BeginTabBar("##atse_workspace_tabs",ImGuiTabBarFlags_FittingPolicyScroll)) {
+        if (ImGui::BeginTabItem("Market")) {
+            ImGui::Spacing();
+            if (ImGui::BeginTable("atse_kpi",3,ImGuiTableFlags_SizingStretchSame|ImGuiTableFlags_BordersInnerV)) {
+                ImGui::TableNextColumn();ImGui::TextDisabled("RSI / 14");print_number("",numeric(rsi,"value"));
+                ImGui::TableNextColumn();ImGui::TextDisabled("CCI / 20");print_number("",numeric(cci,"value"));
+                ImGui::TableNextColumn();ImGui::TextDisabled("ATR / 14");print_number("",s.indicators.valid?numeric(i,"atr14"):NAN);
+                ImGui::EndTable();
+            }
+            ImGui::Spacing();
+            ImGui::TextDisabled("EMA TREND");ImGui::SameLine();
+            ImGui::TextColored(teal,"%s",s.indicators.valid?label(trend,"direction").c_str():"—");
+            ImGui::TextDisabled("COMPOSITE");ImGui::SameLine();
+            ImGui::TextColored(bias=="LONG"?teal:bias=="SHORT"?red:amber,
+                               "%s",ready?bias.c_str():"WAIT");
+            ImGui::SeparatorText("MODEL CONFIDENCE");
+            ImGui::TextWrapped("A model vote does not represent a probability of profit. "
+                               "No live trades are placed.");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Levels")) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("PRIOR 20-BAR CHANNEL");
+            print_number("Resistance",numeric(channel,"prior_20_high"));
+            print_number("Support",numeric(channel,"prior_20_low"));
+            ImGui::SeparatorText("CHART LAYERS");
+            ImGui::Checkbox("Show EMA and channel",&s.show_chart_levels);
+            ImGui::Checkbox("Show +/-1 ATR range",&s.show_atr_bands);
+            ImGui::Checkbox("Show compact chart HUD",&s.show_chart_hud);
+            ImGui::TextDisabled("Research levels are hidden on mismatched venues, "
+                                "replay sessions and different contract units.");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Flow")) {
+            ImGui::Spacing();
+            ImGui::TextDisabled("HYPERLIQUID / EXECUTION VENUE");
+            if (fresh) {
+                print_number("Best bid",numeric(hl,"best_bid"));
+                print_number("Best ask",numeric(hl,"best_ask"));
+                print_number("Spread",numeric(hl,"spread_bps")," bps");
+                const double imbalance=numeric(hl,"near_imbalance");
+                if (std::isfinite(imbalance))
+                    ImGui::TextColored(imbalance>=0?teal:red,"Book imbalance %+.3f",imbalance);
+                print_number("Freshness",age+since," ms");
+            } else ImGui::TextColored(amber,"No usable live execution depth");
+            ImGui::TextWrapped("Binance futures book is context only, not a "
+                               "substitute for executable Hyperliquid liquidity.");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Quality")) {
+            ImGui::Spacing();
+            response_flag("Indicators",s.indicators);
+            response_flag("Advanced",s.advanced);
+            response_flag("Hyperliquid",s.depth);
+            ImGui::Separator();
+            ImGui::TextDisabled("UPDATE INTERVAL   8 SEC");
+            ImGui::TextDisabled("MODE              READ ONLY");
+            ImGui::TextColored(ready?teal:amber,ready?"DATA GATE: PASS":"DATA GATE: WAIT");
+            if (!s.indicators.error.empty())ImGui::TextWrapped("Indicators: %s",s.indicators.error.c_str());
+            if (!s.advanced.error.empty())ImGui::TextWrapped("Advanced: %s",s.advanced.error.c_str());
+            if (!s.depth.error.empty())ImGui::TextWrapped("Depth: %s",s.depth.error.c_str());
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
-    ImGui::TextDisabled("EMA 12/26");ImGui::SameLine();ImGui::TextColored(teal,"%s",s.indicators.valid?label(trend,"direction").c_str():"—");
-    ImGui::TextDisabled("MODEL VOTES");ImGui::SameLine();
-    ImGui::TextColored(bias=="LONG"?teal:bias=="SHORT"?red:amber,"%s",ready?bias.c_str():"WAIT");
-    ImGui::TextDisabled("Non-executable research / no automated orders");
-    ImGui::SeparatorText("HYPERLIQUID · EXECUTION DEPTH");
-    if (fresh) {
-        ImGui::Text("BID  %.2f",numeric(hl,"best_bid"));
-        ImGui::SameLine();ImGui::Text("ASK  %.2f",numeric(hl,"best_ask"));
-        const double im=numeric(hl,"near_imbalance",0);
-        ImGui::TextColored(im>=0?teal:red,"Orderbook pressure  %+.2f",im);
-        ImGui::TextDisabled("Age %.0fms · Spread %.2f bps",age+since,numeric(hl,"spread_bps"));
-    } else ImGui::TextColored(amber,"Depth unavailable / stale — no confirmation");
-    ImGui::SeparatorText("RESEARCH CHANNEL");
-    const auto channel=s.advanced.valid?adv.value("hilo_channel",nlohmann::json::object()):nlohmann::json::object();
-    if (s.advanced.valid) {
-        ImGui::Text("RESISTANCE    %.2f",numeric(channel,"prior_20_high"));
-        ImGui::Text("SUPPORT       %.2f",numeric(channel,"prior_20_low"));
-        const auto force=adv.value("tdfi_inspired",nlohmann::json::object());
-        ImGui::TextDisabled("Normalized trend force %+0.2f",numeric(force,"normalized_force"));
-    } else ImGui::TextDisabled("Indicators loading...");
-    if (!s.indicators.error.empty()) ImGui::TextColored(red,"Indicators: %s",s.indicators.error.c_str());
-    if (!s.advanced.error.empty()) ImGui::TextColored(red,"Advanced: %s",s.advanced.error.c_str());
-    if (!s.depth.error.empty()) ImGui::TextColored(red,"Depth: %s",s.depth.error.c_str());
+    ImGui::Separator();
+    ImGui::TextDisabled("ATSE TITAN  /  Native Research  /  F8 to toggle");
     ImGui::End();ImGui::PopStyleColor(2);ImGui::PopStyleVar(3);
 }
 } // namespace atse
