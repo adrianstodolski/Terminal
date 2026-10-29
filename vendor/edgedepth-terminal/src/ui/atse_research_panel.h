@@ -19,6 +19,7 @@ struct Response {
     double received_at = 0.0;
     std::string error;
     std::string requested_symbol;
+    int requested_interval = -1;
 };
 struct State {
     Response indicators, advanced, depth;
@@ -89,7 +90,8 @@ inline void callback_success(emscripten_fetch_t* fetch) {
     target->received = true;
     target->received_at = emscripten_get_now();
     target->valid = false;
-    const bool correct_symbol=target->requested_symbol==std::string(state().symbol);
+    const bool correct_symbol=target->requested_symbol==std::string(state().symbol)
+        && target->requested_interval==state().interval;
     if (!correct_symbol) {
         target->error="Stale response discarded";
         emscripten_fetch_close(fetch);
@@ -120,6 +122,7 @@ inline void request(Response& target, const std::string& path) {
     if (target.pending) return;
     target.pending = true;
     target.requested_symbol=state().symbol;
+    target.requested_interval=state().interval;
     emscripten_fetch_attr_t attrs;
     emscripten_fetch_attr_init(&attrs);
     std::snprintf(attrs.requestMethod, sizeof(attrs.requestMethod), "%s", "GET");
@@ -162,6 +165,7 @@ inline void response_flag(const char* title, const Response& r) {
 inline void render_panel() {
     State& s = state();
     maybe_refresh();
+    if (ImGui::IsKeyPressed(ImGuiKey_F8))s.enabled=!s.enabled;
     if (!s.enabled) return;
     ImGui::SetNextWindowSize(ImVec2(364,390), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowPos(ImVec2(280,120), ImGuiCond_FirstUseEver);
