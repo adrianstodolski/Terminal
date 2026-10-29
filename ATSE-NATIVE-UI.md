@@ -3,6 +3,7 @@
 This is the actual modified **EdgeDepth C++ / ImGui / ImPlot / WASM** application, not the legacy HTML Research Lab and not the unmodified upstream GHCR image.
 
 ## This iteration
+- Added **ATSE Obsidian** as a whole-terminal appearance preset (blue-graphite surfaces, cool text, indigo accent). Applied on first launch with no saved appearance; users with saved settings select **ATSE Obsidian** in the existing Appearance controls. Other presets remain available.
 - Native ATSE window reduced to a compact research card with consistent spacing/colors, KPI grid, data quality state, and source diagnostics.
 - **Follow active chart** is on by default: `TAO/USDT` chart gives **TAO** research, `BTC/USDT` gives BTC; timeframe sync from visible chart to the nearest supported interval. Manual selection remains possible when following is turned off.
 - Actual **ImPlot overlay** in the original EdgeDepth chart: prior 20-bar support and resistance, EMA 12 and EMA 26, optional one-ATR reference zones, research-bias context HUD.
@@ -35,7 +36,7 @@ Open `http://127.0.0.1:8082` in Chrome or Firefox. **This build compiles from mo
 Suggested visual acceptance:
 1. Change chart from TAO/USDT to BTC/USDT. Panel symbol and chart overlays must switch automatically, never show BTC data on TAO.
 2. Switch chart timeframe from 5m to 15m. The panel's interval should update.
-3. Toggle **Levels**, **ATR range**, **HUD** to verify overlays on the **real ImPlot price chart**, not separate cards.
+3. Open Appearance and select **ATSE Obsidian** (unless already selected). Toggle **Levels**, **ATR range**, **HUD** to verify overlays on the **real ImPlot price chart**, not separate cards.
 4. Drag/collapse the smaller ATSE card, then toggle with **F8**. Confirm original DOM, heatmap and trade bubble interaction still work.
 5. Switch to Replay. Live ATSE levels should not draw over historical data.
 6. Stop the local Python API. Confirm data-quality failure appears instead of a fabricated trade signal.
