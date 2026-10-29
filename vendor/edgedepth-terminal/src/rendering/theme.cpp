@@ -89,10 +89,14 @@ namespace Theme {
             {0x000000, 0x030303, 0x0b0b0b, 0x0a0a0a, 0x1a1a1a, 0x262626,
              0x1c1c1c, 0x2a2a2a, 0x383838, 0x101010, 0x080808, 0x0d0d0d,
              0x3d3d3d, 0x5f5f5f, 0xa6a6a6, 0xffffff, 0xdedede, 0xbdbdbd, 0xa8a8a8, 0.70f, 0.70f, 0.90f},
+            // ATSE Obsidian: midnight blue graphite, cool silver text, cyan-teal linework.
+            {0x070e18, 0x0c1623, 0x111e30, 0x142339, 0x1a3047, 0x213b55,
+             0x17283d, 0x20364f, 0x29445e, 0x101e30, 0x122238, 0x101d2f,
+             0x21374b, 0x33516a, 0x6b94a8, 0xe5f2ff, 0xa9c4d7, 0x7b9eb7, 0x6b889d, 0.64f, 0.48f, 0.76f},
         };
-        constexpr const char* kChromeNames[] = {"EdgeDepth", "Graphite", "Midnight", "High contrast"};
+        constexpr const char* kChromeNames[] = {"EdgeDepth", "Graphite", "Midnight", "High contrast", "ATSE Obsidian"};
         static_assert(std::size(kChrome) == std::size(kChromeNames) &&
-                      std::size(kChrome) == size_t(Chrome::HighContrast) + 1, "one row and label per Chrome value");
+                      std::size(kChrome) == size_t(Chrome::ATSEObsidian) + 1, "one row and label per Chrome value");
     }
 
     void set_chrome(Chrome c) {
@@ -182,7 +186,12 @@ namespace Theme {
         if (version != 2) {
             j = read_storage("edgedepth.appearance.v1");
             workspace::read(j, "version", version, 1, 1);
-            if (version != 1) return;
+            if (version != 1) {
+                // New installation: distinct ATSE chrome, reversible in Appearance.
+                set_chrome(Chrome::ATSEObsidian);
+                set_accent(Accent::Indigo);
+                return;
+            }
         }
         int liq = int(HeatmapColormap::liq_map());
         workspace::read(j, "chrome", g_chrome, 0, std::size(kChrome) - 1);
