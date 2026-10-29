@@ -29,6 +29,7 @@ inline void draw_price_overlay(const std::string& exchange,const std::string& pa
     const double low=numeric(channel,"prior_20_low");
     const double ema12=numeric(ema,"ema12");
     const double ema26=numeric(ema,"ema26");
+    const double atr=numeric(i,"atr14");
     const ImVec2 origin=ImPlot::GetPlotPos(),size=ImPlot::GetPlotSize();
     if (size.x<120 || size.y<100) return;
     ImDrawList* dl=ImPlot::GetPlotDrawList();
@@ -40,7 +41,9 @@ inline void draw_price_overlay(const std::string& exchange,const std::string& pa
             {high,"ATSE R20",IM_COL32(244,156,98,230),true},
             {low,"ATSE S20",IM_COL32(62,217,170,230),true},
             {ema12,"EMA12",IM_COL32(88,170,245,190),false},
-            {ema26,"EMA26",IM_COL32(180,129,236,190),false}
+            {ema26,"EMA26",IM_COL32(180,129,236,190),false},
+            {s.show_atr_bands&&std::isfinite(atr)?study_close+atr:NAN,"ATR +1",IM_COL32(126,159,182,170),true},
+            {s.show_atr_bands&&std::isfinite(atr)?study_close-atr:NAN,"ATR -1",IM_COL32(126,159,182,170),true}
         };
         for(const Level& level:levels) {
             if (!std::isfinite(level.p)||level.p<=0||
@@ -65,7 +68,7 @@ inline void draw_price_overlay(const std::string& exchange,const std::string& pa
         const ImU32 tone=bias=="LONG"?IM_COL32(49,218,162,255):
                          bias=="SHORT"?IM_COL32(249,99,124,255):
                          IM_COL32(242,191,107,255);
-        const ImVec2 top(origin.x+11,origin.y+12);
+        const ImVec2 top(origin.x+size.x-222,origin.y+12);
         const float bw=209.0f,bh=64.0f;
         dl->AddRectFilled(top,ImVec2(top.x+bw,top.y+bh),IM_COL32(8,18,30,225),7.0f);
         dl->AddRect(top,ImVec2(top.x+bw,top.y+bh),IM_COL32(53,77,97,220),7.0f);
