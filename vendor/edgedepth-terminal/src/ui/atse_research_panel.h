@@ -22,6 +22,9 @@ struct Response {
 struct State {
     Response indicators, advanced, depth;
     bool enabled = true;
+    bool follow_chart = true;
+    bool show_chart_levels = true;
+    bool show_chart_hud = true;
     char symbol[25] = "BTC";
     int interval = 1;
     double last_request = -1e6;
@@ -30,6 +33,43 @@ struct State {
 inline State& state() { static State s; return s; }
 inline const char* intervals[] = {"1m","5m","15m","1h","4h"};
 inline const char* root_url = "http://127.0.0.1:8765";
+inline std::string normalize_pair(const std::string& exchange, std::string symbol) {
+    if (exchange != "binancef" && exchange != "hl") return "";
+    for (char& c : symbol) if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 'a' + 'A');
+    if (exchange == "binancef") {
+        const std::string quote = "USDT";
+        if (symbol.size() > quote.size() &&
+            symbol.compare(symbol.size()-quote.size(),quote.size(),quote)==0)
+            symbol.resize(symbol.size()-quote.size());
+    }
+    // 1000-unit contracts do not have one-to-one price alignment with HL.
+    if (symbol.rfind("1000",0)==0) return "";
+    for (char c:symbol) if (!((c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-')) return "";
+    return symbol;
+}
+inline void track_chart(const std::string& exchange,const std::string& pair,int64_t tf_sec) {
+    State& s=state();
+    if (!s.follow_chart) return;
+    const std::string normalized=normalize_pair(exchange,pair);
+    if (normalized.empty() || normalized.size()>=sizeof(s.symbol)) return;
+    if (normalized != s.symbol) {
+        std::snprintf(s.symbol,sizeof(s.symbol),"%s",normalized.c_str());
+        // The next poll is blocked while any previous in-flight call exists.
+        // Clear old quotes NOW, so another instrument can never display them.
+        s.indicators.valid=false;s.advanced.valid=false;s.depth.valid=false;
+        s.last_request=-1e6;
+    }
+    int desired=1;
+    if (tf_sec <= 60) desired=0;
+    else if(tf_sec <=300) desired=1;
+    else if(tf_sec <=900) desired=2;
+    else if(tf_sec <=3600) desired=3;
+    else desired=4;
+    if (desired!=s.interval) {
+        s.interval=desired;s.indicators.valid=false;s.advanced.valid=false;
+        s.last_request=-1e6;
+    }
+}
 inline double numeric(const nlohmann::json& obj, const char* key, double fallback = NAN) {
     if (!obj.is_object() || !obj.contains(key)) return fallback;
     const auto& v = obj[key];
@@ -114,91 +154,83 @@ inline void render_panel() {
     State& s = state();
     maybe_refresh();
     if (!s.enabled) return;
-    ImGui::SetNextWindowSize(ImVec2(410,550), ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowPos(ImVec2(65,100), ImGuiCond_FirstUseEver);
-    if (!ImGui::Begin("ATSE | Market Intelligence###atse_native_panel", &s.enabled)) {
-        ImGui::End(); return;
+    ImGui::SetNextWindowSize(ImVec2(364,390), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(280,120), ImGuiCond_FirstUseEver);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(16,13));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(9,8));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,9.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg,ImVec4(.055f,.085f,.125f,.98f));
+    ImGui::PushStyleColor(ImGuiCol_Border,ImVec4(.15f,.27f,.33f,1));
+    if (!ImGui::Begin("ATSE  /  MARKET INTELLIGENCE###atse_native_panel", &s.enabled)) {
+        ImGui::End();ImGui::PopStyleColor(2);ImGui::PopStyleVar(3);return;
     }
-    ImGui::TextColored(ImVec4(.25f,.83f,.68f,1), "EDGEDEPTH + ATSE");
-    ImGui::SameLine(); ImGui::TextDisabled("Native research extension");
-    if (ImGui::InputText("Asset", s.symbol, sizeof(s.symbol),
-                         ImGuiInputTextFlags_CharsUppercase | ImGuiInputTextFlags_EnterReturnsTrue))
-        s.last_request=-1e6;
+    const auto teal=ImVec4(.27f,.88f,.72f,1);
+    const auto amber=ImVec4(.97f,.73f,.42f,1);
+    const auto red=ImVec4(.99f,.39f,.48f,1);
+    ImGui::TextColored(teal,"◈  ATSE / INSTITUTIONAL RESEARCH");
+    ImGui::SameLine();ImGui::TextDisabled("  beta");
+    ImGui::Separator();
+    ImGui::Checkbox("Follow active chart",&s.follow_chart);
     ImGui::SameLine();
-    if (ImGui::Combo("Interval", &s.interval, intervals, IM_ARRAYSIZE(intervals)))
-        s.last_request=-1e6;
-    if (ImGui::Button("Refresh data")) s.last_request=-1e6;
-    ImGui::SameLine(); ImGui::TextDisabled("8s polling / read-only");
-    ImGui::Separator();
-    response_flag("Indicators:",s.indicators);
-    response_flag("Advanced:",s.advanced);
-    response_flag("Depth:",s.depth);
-    ImGui::Separator();
-    const auto& i=s.indicators.body;
-    if (s.indicators.valid) {
-        const auto cci=i.value("cci20",nlohmann::json::object());
-        const auto rsi=i.value("rsi14",nlohmann::json::object());
-        const auto trend=i.value("ema_trend",nlohmann::json::object());
-        print_number("Close:",numeric(i,"close"));
-        print_number("CCI(20):",numeric(cci,"value"));
-        print_number("RSI(14):",numeric(rsi,"value"));
-        print_number("ATR(14):",numeric(i,"atr14"));
-        ImGui::Text("EMA trend: %s",label(trend,"direction").c_str());
-        const auto bias=label(i,"research_bias","WAIT");
-        const ImVec4 col=bias=="LONG"?ImVec4(.25f,.85f,.64f,1):
-                         bias=="SHORT"?ImVec4(1,.39f,.47f,1):ImVec4(.95f,.72f,.4f,1);
-        ImGui::TextColored(col,"Candle research bias: %s",bias.c_str());
-    }
-    ImGui::SeparatorText("ATSE advanced analysis");
-    if (s.advanced.valid) {
-        const auto& a=s.advanced.body;
-        const auto trend=a.value("itrend_inspired",nlohmann::json::object());
-        const auto force=a.value("tdfi_inspired",nlohmann::json::object());
-        const auto pressure=a.value("waddah_inspired",nlohmann::json::object());
-        const auto channel=a.value("hilo_channel",nlohmann::json::object());
-        const auto consensus=a.value("consensus",nlohmann::json::object());
-        ImGui::Text("Trend alignment: %s",label(trend,"direction").c_str());
-        print_number("Normalized force:",numeric(force,"normalized_force"));
-        print_number("Momentum:",numeric(pressure,"momentum"));
-        print_number("Explosion:",numeric(pressure,"explosion"));
-        print_number("Channel high:",numeric(channel,"prior_20_high"));
-        print_number("Channel low:",numeric(channel,"prior_20_low"));
-        ImGui::Text("Composite research: %s",label(consensus,"bias","WAIT").c_str());
-        print_number("Votes score:",numeric(consensus,"score"));
-        ImGui::TextDisabled("Open indicator proxies; not proprietary signal clones");
-    }
-    ImGui::SeparatorText("Hyperliquid execution depth");
-    const auto& d=s.depth.body;
-    if (s.depth.valid) {
-        const auto book=d.value("hyperliquid",nlohmann::json::object());
-        const std::string status=label(book,"status","unavailable");
-        const double age=numeric(book,"age_ms");
-        const bool good=status=="live"&&std::isfinite(age)&&age<=s.data_age_limit_ms;
-        ImGui::TextColored(good?ImVec4(.25f,.85f,.64f,1):ImVec4(1,.39f,.47f,1),
-                           "Book quality: %s",good?"LIVE":"STALE / UNAVAILABLE");
-        print_number("Bid:",numeric(book,"best_bid"));
-        print_number("Ask:",numeric(book,"best_ask"));
-        print_number("Spread:",numeric(book,"spread_bps")," bps");
-        print_number("Near imbalance:",numeric(book,"near_imbalance"));
-        print_number("Data age:",age," ms");
-        const auto gateway=d.value("gateway",nlohmann::json::object());
-        if (gateway.is_object()) {
-            const auto books=gateway.value("books",nlohmann::json::object());
-            const auto btc=books.is_object()?books.value("BTCUSDT",nlohmann::json::object()):nlohmann::json::object();
-            ImGui::TextDisabled("Binance context: %s (not execution depth)",label(btc,"status","offline").c_str());
+    ImGui::TextDisabled("%s / %s",s.symbol,intervals[s.interval]);
+    if (!s.follow_chart) {
+        if (ImGui::InputText("Symbol",s.symbol,sizeof(s.symbol),ImGuiInputTextFlags_CharsUppercase)) {
+            s.indicators.valid=false;s.advanced.valid=false;s.depth.valid=false;s.last_request=-1e6;
+        }
+        if (ImGui::Combo("Timeframe",&s.interval,intervals,IM_ARRAYSIZE(intervals))) {
+            s.indicators.valid=false;s.advanced.valid=false;s.last_request=-1e6;
         }
     }
-    ImGui::SeparatorText("Source and signal integrity");
-    const bool candle_ready=s.indicators.valid,depth_ready=s.depth.valid &&
-        label(s.depth.body.value("hyperliquid",nlohmann::json::object()),"status")=="live" &&
-        numeric(s.depth.body.value("hyperliquid",nlohmann::json::object()),"age_ms",1e10)<s.data_age_limit_ms;
-    if (!candle_ready || !depth_ready)
-        ImGui::TextColored(ImVec4(1,.65f,.37f,1),"DATA GATE: WAIT (missing or stale source)");
-    else ImGui::TextColored(ImVec4(.25f,.83f,.65f,1),"DATA GATE: feeds readable (NOT trade confirmation)");
-    ImGui::TextWrapped("This panel is independent of the original DOM, footprint, TPO, heatmap and replay. "
-        "It does not place orders. Indicator bias alone is not an executable signal.");
-    if (!s.indicators.error.empty()) ImGui::TextWrapped("Indicators: %s",s.indicators.error.c_str());
-    if (!s.depth.error.empty()) ImGui::TextWrapped("Depth: %s",s.depth.error.c_str());
-    ImGui::End();
+    ImGui::Checkbox("Levels on chart",&s.show_chart_levels);
+    ImGui::SameLine();ImGui::Checkbox("Chart HUD",&s.show_chart_hud);
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Sync"))s.last_request=-1e6;
+    ImGui::SeparatorText("MARKET STATE");
+    const auto& i=s.indicators.body;
+    const auto& adv=s.advanced.body;
+    const auto& d=s.depth.body;
+    const auto hl=s.depth.valid?d.value("hyperliquid",nlohmann::json::object()):nlohmann::json::object();
+    const auto cci=s.indicators.valid?i.value("cci20",nlohmann::json::object()):nlohmann::json::object();
+    const auto rsi=s.indicators.valid?i.value("rsi14",nlohmann::json::object()):nlohmann::json::object();
+    const auto trend=s.indicators.valid?i.value("ema_trend",nlohmann::json::object()):nlohmann::json::object();
+    const auto consensus=s.advanced.valid?adv.value("consensus",nlohmann::json::object()):nlohmann::json::object();
+    const std::string bias=s.advanced.valid?label(consensus,"bias","WAIT"):"WAIT";
+    const double age=numeric(hl,"age_ms");
+    const double since=s.depth.received?(emscripten_get_now()-s.depth.received_at):1e10;
+    const bool fresh=s.depth.valid&&label(hl,"status")=="live"&&std::isfinite(age)
+        &&age+since<s.data_age_limit_ms;
+    const bool ready=fresh&&s.indicators.valid&&s.advanced.valid;
+    ImGui::TextColored(ready?teal:amber,ready?"●  SOURCES VERIFIED":"●  PARTIAL / STALE DATA");
+    ImGui::SameLine();ImGui::TextDisabled(" ·  %s",s.symbol);
+    if (ImGui::BeginTable("atse_kpi",3,ImGuiTableFlags_SizingStretchSame|ImGuiTableFlags_BordersInnerV)) {
+        ImGui::TableNextColumn();ImGui::TextDisabled("RSI / 14");print_number("",numeric(rsi,"value"));
+        ImGui::TableNextColumn();ImGui::TextDisabled("CCI / 20");print_number("",numeric(cci,"value"));
+        ImGui::TableNextColumn();ImGui::TextDisabled("ATR / 14");print_number("",s.indicators.valid?numeric(i,"atr14"):NAN);
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("EMA 12/26");ImGui::SameLine();ImGui::TextColored(teal,"%s",s.indicators.valid?label(trend,"direction").c_str():"—");
+    ImGui::TextDisabled("MODEL VOTES");ImGui::SameLine();
+    ImGui::TextColored(bias=="LONG"?teal:bias=="SHORT"?red:amber,"%s",ready?bias.c_str():"WAIT");
+    ImGui::TextDisabled("Non-executable research / no automated orders");
+    ImGui::SeparatorText("HYPERLIQUID · EXECUTION DEPTH");
+    if (fresh) {
+        ImGui::Text("BID  %.2f",numeric(hl,"best_bid"));
+        ImGui::SameLine();ImGui::Text("ASK  %.2f",numeric(hl,"best_ask"));
+        const double im=numeric(hl,"near_imbalance",0);
+        ImGui::TextColored(im>=0?teal:red,"Orderbook pressure  %+.2f",im);
+        ImGui::TextDisabled("Age %.0fms · Spread %.2f bps",age+since,numeric(hl,"spread_bps"));
+    } else ImGui::TextColored(amber,"Depth unavailable / stale — no confirmation");
+    ImGui::SeparatorText("RESEARCH CHANNEL");
+    const auto channel=s.advanced.valid?adv.value("hilo_channel",nlohmann::json::object()):nlohmann::json::object();
+    if (s.advanced.valid) {
+        ImGui::Text("RESISTANCE    %.2f",numeric(channel,"prior_20_high"));
+        ImGui::Text("SUPPORT       %.2f",numeric(channel,"prior_20_low"));
+        const auto force=adv.value("tdfi_inspired",nlohmann::json::object());
+        ImGui::TextDisabled("Normalized trend force %+0.2f",numeric(force,"normalized_force"));
+    } else ImGui::TextDisabled("Indicators loading...");
+    if (!s.indicators.error.empty()) ImGui::TextColored(red,"Indicators: %s",s.indicators.error.c_str());
+    if (!s.advanced.error.empty()) ImGui::TextColored(red,"Advanced: %s",s.advanced.error.c_str());
+    if (!s.depth.error.empty()) ImGui::TextColored(red,"Depth: %s",s.depth.error.c_str());
+    ImGui::End();ImGui::PopStyleColor(2);ImGui::PopStyleVar(3);
 }
 } // namespace atse
