@@ -46,7 +46,7 @@ namespace Theme {
     enum class CandleConvention : uint8_t { TealMag, Classic, Muted, BlueWhite, Custom, BlueOrange };
     // Dark chrome presets (surfaces, controls, hairlines, text). Market colors
     // and the accent stay separate choices. Values live in theme.cpp kChrome.
-    enum class Chrome : uint8_t { EdgeDepth, Graphite, Midnight, HighContrast };
+    enum class Chrome : uint8_t { EdgeDepth, Graphite, Midnight, HighContrast, ATSEObsidian };
 
     namespace Tokens {
         // ── Surfaces - theme-tokens.json bg ramp (2026-07-02 redesign) ───────
