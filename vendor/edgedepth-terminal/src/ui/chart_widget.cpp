@@ -894,11 +894,11 @@ void ChartWidget::change_timeframe(const int new_tf_seconds)
 
 // Main Render
 void ChartWidget::render() {
-    if (!compare_ && !ctx_.replay_mgr().is_active())
-        atse::track_chart(pair_.exchange,pair_.symbol,candles().timeframe_seconds());
     cursor_reference_price_ = 0;
     rt_dom_frame_ = {}; // A hidden/collapsed plot must not publish a stale transform.
     if (!is_open) return;
+    if (!compare_ && !ctx_.replay_mgr().is_active())
+        atse::track_chart(pair_.exchange,pair_.symbol,candles().timeframe_seconds());
 
     // Keep the tab's visible TF and mode in sync (catches every TF-change and
     // real-time path, not just the toolbar). Cheap compares; the string is only
