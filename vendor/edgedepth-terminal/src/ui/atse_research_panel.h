@@ -148,7 +148,8 @@ inline void refresh() {
 }
 inline void maybe_refresh() {
     State& s=state();
-    if (s.enabled && emscripten_get_now()-s.last_request >= 8000.0) refresh();
+    // Chart layers keep updating even when the ATSE floating inspector is hidden.
+    if (emscripten_get_now()-s.last_request >= 8000.0) refresh();
 }
 inline void print_number(const char* title, double n, const char* suffix = "") {
     if (std::isfinite(n)) ImGui::Text("%s  %.2f%s", title, n, suffix);
