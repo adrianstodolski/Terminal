@@ -90,6 +90,9 @@ void LayoutManager::setup_default_layout(const std::string& exchange, const std:
         ImGui::DockBuilderDockWindow(chart_name.c_str(), chart_node);
         ImGui::DockBuilderDockWindow(dom_name.c_str(), dock_right);
         ImGui::DockBuilderDockWindow(trades_name.c_str(), dock_right_trades);
+        // Embed ATSE as a tab in the lower orderflow dock. The chart and DOM keep
+        // their original allocated space; users can undock or rearrange the tab.
+        // Embedded lesson/studio sessions intentionally do not show this panel.
 
         ImGui::DockBuilderFinish(dockspace_id);
         is_initialized = true;
@@ -129,6 +132,9 @@ void LayoutManager::setup_default_layout(const std::string& exchange, const std:
     ImGui::DockBuilderDockWindow(chart_name.c_str(), chart_node);
     ImGui::DockBuilderDockWindow(dom_name.c_str(), dock_right);
     ImGui::DockBuilderDockWindow(trades_name.c_str(), dock_right_trades);
+    // ATSE is a first-class native dock tab, not an overlapping floating tool.
+    // Pair with the tape in the lower right; chart and DOM sizes remain intact.
+    ImGui::DockBuilderDockWindow("ATSE  /  MARKET INTELLIGENCE###atse_native_panel", dock_right_trades);
 
     ImGui::DockBuilderFinish(dockspace_id);
     is_initialized = true;
