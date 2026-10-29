@@ -32,6 +32,12 @@ struct State {
     int interval = 1;
     double last_request = -1e6;
     double data_age_limit_ms = 10000.0;
+    double risk_equity = 20000.0;
+    double risk_fraction_pct = 0.5;
+    double risk_entry = 0.0;
+    double risk_stop = 0.0;
+    double risk_target = 0.0;
+    double risk_leverage = 3.0;
 };
 inline State& state() { static State s; return s; }
 inline const char* intervals[] = {"1m","5m","15m","1h","4h"};
@@ -195,10 +201,7 @@ inline void render_panel() {
             s.indicators.valid=false;s.advanced.valid=false;s.last_request=-1e6;
         }
     }
-    ImGui::Checkbox("Levels",&s.show_chart_levels);
-    ImGui::SameLine();ImGui::Checkbox("ATR range",&s.show_atr_bands);
-    ImGui::SameLine();ImGui::Checkbox("HUD",&s.show_chart_hud);
-    if (ImGui::SmallButton("Sync sources"))s.last_request=-1e6;
+    if (ImGui::SmallButton("Refresh sources"))s.last_request=-1e6;
     const auto& i=s.indicators.body;
     const auto& adv=s.advanced.body;
     const auto& d=s.depth.body;
@@ -264,6 +267,53 @@ inline void render_panel() {
             } else ImGui::TextColored(amber,"No usable live execution depth");
             ImGui::TextWrapped("Binance futures book is context only, not a "
                                "substitute for executable Hyperliquid liquidity.");
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Risk")) {
+            ImGui::TextDisabled("MANUAL POSITION SCENARIO / USDC");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputDouble("Equity (USDC)",&s.risk_equity,0,0,"%.2f");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputDouble("Risk per trade (%)",&s.risk_fraction_pct,0,0,"%.2f");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputDouble("Entry",&s.risk_entry,0,0,"%.4f");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputDouble("Stop",&s.risk_stop,0,0,"%.4f");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputDouble("Target",&s.risk_target,0,0,"%.4f");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputDouble("Leverage cap",&s.risk_leverage,0,0,"%.1f");
+            const bool inputs=std::isfinite(s.risk_equity)&&s.risk_equity>0 &&
+                std::isfinite(s.risk_fraction_pct)&&s.risk_fraction_pct>0&&s.risk_fraction_pct<=5 &&
+                std::isfinite(s.risk_entry)&&s.risk_entry>0 &&
+                std::isfinite(s.risk_stop)&&s.risk_stop>0 &&
+                std::isfinite(s.risk_target)&&s.risk_target>0 &&
+                std::isfinite(s.risk_leverage)&&s.risk_leverage>=1&&s.risk_leverage<=20 &&
+                std::fabs(s.risk_entry-s.risk_stop)>1e-9 &&
+                ((s.risk_stop<s.risk_entry&&s.risk_target>s.risk_entry)||
+                 (s.risk_stop>s.risk_entry&&s.risk_target<s.risk_entry));
+            if(inputs){
+                const double loss_per_unit=std::fabs(s.risk_entry-s.risk_stop);
+                const double budget=s.risk_equity*s.risk_fraction_pct/100.0;
+                const double units_by_risk=budget/loss_per_unit;
+                const double units_by_leverage=s.risk_equity*s.risk_leverage/s.risk_entry;
+                const double units=std::min(units_by_risk,units_by_leverage);
+                const double notional=units*s.risk_entry;
+                const double loss=units*loss_per_unit;
+                const double reward=units*std::fabs(s.risk_target-s.risk_entry);
+                ImGui::SeparatorText("SCENARIO");
+                ImGui::TextColored(teal,"%s",s.risk_stop<s.risk_entry?"LONG":"SHORT");
+                print_number("Max units",units);
+                print_number("Notional",notional," USDC");
+                print_number("Initial margin est.",notional/s.risk_leverage," USDC");
+                print_number("Price-only stop loss",loss," USDC");
+                print_number("Potential gain",reward," USDC");
+                print_number("Reward / risk",reward/loss);
+            } else ImGui::TextColored(amber,"Enter valid entry, stop, target and limits");
+            ImGui::TextWrapped("Hypothetical sizing only: excludes trading fees, "
+                               "slippage, funding, maintenance margin, liquidation "
+                               "distance, cross-collateral and other positions. "
+                               "No orders are sent.");
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Quality")) {
