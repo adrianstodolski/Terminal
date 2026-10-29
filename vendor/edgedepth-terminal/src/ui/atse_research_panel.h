@@ -18,6 +18,7 @@ struct Response {
     bool valid = false;
     double received_at = 0.0;
     std::string error;
+    std::string requested_symbol;
 };
 struct State {
     Response indicators, advanced, depth;
@@ -25,6 +26,7 @@ struct State {
     bool follow_chart = true;
     bool show_chart_levels = true;
     bool show_chart_hud = true;
+    bool show_atr_bands = false;
     char symbol[25] = "BTC";
     int interval = 1;
     double last_request = -1e6;
@@ -87,6 +89,12 @@ inline void callback_success(emscripten_fetch_t* fetch) {
     target->received = true;
     target->received_at = emscripten_get_now();
     target->valid = false;
+    const bool correct_symbol=target->requested_symbol==std::string(state().symbol);
+    if (!correct_symbol) {
+        target->error="Stale response discarded";
+        emscripten_fetch_close(fetch);
+        return;
+    }
     if (fetch->status != 200 || !fetch->data) {
         target->error = "HTTP " + std::to_string(fetch->status);
     } else {
@@ -111,6 +119,7 @@ inline void callback_error(emscripten_fetch_t* fetch) {
 inline void request(Response& target, const std::string& path) {
     if (target.pending) return;
     target.pending = true;
+    target.requested_symbol=state().symbol;
     emscripten_fetch_attr_t attrs;
     emscripten_fetch_attr_init(&attrs);
     std::snprintf(attrs.requestMethod, sizeof(attrs.requestMethod), "%s", "GET");
@@ -181,10 +190,10 @@ inline void render_panel() {
             s.indicators.valid=false;s.advanced.valid=false;s.last_request=-1e6;
         }
     }
-    ImGui::Checkbox("Levels on chart",&s.show_chart_levels);
-    ImGui::SameLine();ImGui::Checkbox("Chart HUD",&s.show_chart_hud);
-    ImGui::SameLine();
-    if (ImGui::SmallButton("Sync"))s.last_request=-1e6;
+    ImGui::Checkbox("Levels",&s.show_chart_levels);
+    ImGui::SameLine();ImGui::Checkbox("ATR range",&s.show_atr_bands);
+    ImGui::SameLine();ImGui::Checkbox("HUD",&s.show_chart_hud);
+    if (ImGui::SmallButton("Sync sources"))s.last_request=-1e6;
     ImGui::SeparatorText("MARKET STATE");
     const auto& i=s.indicators.body;
     const auto& adv=s.advanced.body;
