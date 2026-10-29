@@ -4,6 +4,7 @@
 #include <emscripten/fetch.h>
 #include <emscripten/emscripten.h>
 #include <imgui.h>
+#include "rendering/theme.h"
 #include <nlohmann/json.hpp>
 #include <string>
 #include <cstdio>
@@ -179,14 +180,15 @@ inline void render_panel() {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(16,13));
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,ImVec2(9,8));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,9.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg,ImVec4(.055f,.085f,.125f,.98f));
-    ImGui::PushStyleColor(ImGuiCol_Border,ImVec4(.15f,.27f,.33f,1));
+    // Match whichever full-terminal chrome palette is selected in Appearance.
+    ImGui::PushStyleColor(ImGuiCol_WindowBg,Theme::Tokens::PANEL);
+    ImGui::PushStyleColor(ImGuiCol_Border,Theme::Tokens::BD1);
     if (!ImGui::Begin("ATSE  /  MARKET INTELLIGENCE###atse_native_panel", &s.enabled)) {
         ImGui::End();ImGui::PopStyleColor(2);ImGui::PopStyleVar(3);return;
     }
-    const auto teal=ImVec4(.27f,.88f,.72f,1);
-    const auto amber=ImVec4(.97f,.73f,.42f,1);
-    const auto red=ImVec4(.99f,.39f,.48f,1);
+    const ImVec4 teal=Theme::Tokens::UP;
+    const ImVec4 amber=Theme::Tokens::WARN;
+    const ImVec4 red=Theme::Tokens::DOWN;
     ImGui::TextColored(teal,"◈  ATSE / INSTITUTIONAL RESEARCH");
     ImGui::SameLine();ImGui::TextDisabled("  beta");
     ImGui::Separator();
